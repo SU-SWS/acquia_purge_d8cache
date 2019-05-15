@@ -1,0 +1,138 @@
+<?php
+
+/**
+ * @file
+ * acquia_purge_d8cache.module
+ */
+
+/**
+ * Implements hook_flush_caches().
+ */
+function acquia_purge_d8cache_flush_caches() {
+  $tags = db_select('d8cache_cache_tags', 'c')
+    ->distinct()
+    ->fields('c', ['tag'])
+    ->execute()
+    ->fetchCol();
+
+  // Invalidate all tags when full site cache is cleared.
+  acquia_purge_d8cache_invalidate_cache_tags($tags);
+}
+
+/**
+ * Implements hook_invalidate_cache_tags().
+ */
+function acquia_purge_d8cache_invalidate_cache_tags($tags) {
+  // TODO Call acquia LB to purge varnish.
+}
+
+/**
+ * Implements hook_views_pre_view().
+ */
+function acquia_purge_d8cache_views_pre_build(&$view) {
+  // Change views cache to none since varnish will do the cacheing for us.
+  if ($view->display_handler->get_plugin('cache')->plugin_name == 'time') {
+    $view->display_handler->override_option('cache', ['type' => 'none']);
+  }
+}
+
+/**
+ * Invalidate a set of tag invalidations.
+ *
+ * @see \Drupal\purge\Plugin\Purge\Purger\PurgerInterface::invalidate()
+ * @see \Drupal\purge\Plugin\Purge\Purger\PurgerInterface::routeTypeToMethod()
+ */
+function acquia_purge_d8cache_invalidate(array $invalidations) {
+  $this->debug(__METHOD__);
+
+  // Set invalidation states to PROCESSING. Detect tags with spaces in them,
+  // as space is the only character Drupal core explicitely forbids in tags.
+  foreach ($invalidations as $invalidation) {
+    $tag = $invalidation->getExpression();
+    if (strpos($tag, ' ') !== FALSE) {
+      $invalidation->setState(InvalidationInterface::FAILED);
+      $this->logger->error(
+        "Tag '%tag' contains a space, this is forbidden.", ['%tag' => $tag]
+      );
+    }
+    else {
+      $invalidation->setState(InvalidationInterface::PROCESSING);
+    }
+  }
+
+  // Create grouped sets of 12 so that we can spread out the BAN load.
+  $group = 0;
+  $groups = [];
+  foreach ($invalidations as $invalidation) {
+    if ($invalidation->getState() !== InvalidationInterface::PROCESSING) {
+      continue;
+    }
+    if (!isset($groups[$group])) {
+      $groups[$group] = ['tags' => [], ['objects' => []]];
+    }
+    if (count($groups[$group]['tags']) >= self::TAGS_GROUPED_BY) {
+      $group++;
+    }
+    $groups[$group]['objects'][] = $invalidation;
+    $groups[$group]['tags'][] = $invalidation->getExpression();
+  }
+
+  // Test if we have at least one group of tag(s) to purge, if not, bail.
+  if (!count($groups)) {
+    foreach ($invalidations as $invalidation) {
+      $invalidation->setState(InvalidationInterface::FAILED);
+    }
+    return;
+  }
+
+  // Now create requests for all groups of tags.
+  $site = $this->hostingInfo->getSiteIdentifier();
+  $ipv4_addresses = $this->hostingInfo->getBalancerAddresses();
+  $requests = function () use ($groups, $ipv4_addresses, $site) {
+    foreach ($groups as $group_id => $group) {
+      $tags = implode(' ', Hash::cacheTags($group['tags']));
+      foreach ($ipv4_addresses as $ipv4) {
+        yield $group_id => function ($poolopt) use ($site, $tags, $ipv4) {
+          $opt = [
+            'headers' => [
+              'X-Acquia-Purge' => $site,
+              'X-Acquia-Purge-Tags' => $tags,
+              'Accept-Encoding' => 'gzip',
+              'User-Agent' => 'Acquia Purge',
+            ],
+          ];
+          if (is_array($poolopt) && count($poolopt)) {
+            $opt = array_merge($poolopt, $opt);
+          }
+          return $this->client->requestAsync('BAN', "http://$ipv4/tags", $opt);
+        };
+      }
+    }
+  };
+
+  // Execute the requests generator and retrieve the results.
+  $results = $this->getResultsConcurrently('invalidateTags', $requests);
+
+  // Triage the results and set all invalidation states correspondingly.
+  foreach ($groups as $group_id => $group) {
+    if ((!isset($results[$group_id])) || (!count($results[$group_id]))) {
+      foreach ($group['objects'] as $invalidation) {
+        $invalidation->setState(InvalidationInterface::FAILED);
+      }
+    }
+    else {
+      if (in_array(FALSE, $results[$group_id])) {
+        foreach ($group['objects'] as $invalidation) {
+          $invalidation->setState(InvalidationInterface::FAILED);
+        }
+      }
+      else {
+        foreach ($group['objects'] as $invalidation) {
+          $invalidation->setState(InvalidationInterface::SUCCEEDED);
+        }
+      }
+    }
+  }
+
+  $this->debug(__METHOD__);
+}
