@@ -1,0 +1,15 @@
+{
+    "name": "su-sws/acquia_purge_d8cache",
+    "description": "Varnish cache invalidation on Acquia hosting service using cache tags provided by D8Cache module.",
+    "type": "drupal-custom-module",
+    "license": "GPL-2.0+",
+    "authors": [
+        {
+            "name": "Mike Decker",
+            "email": "pookmish@gmail.com"
+        }
+    ],
+    "require": {
+      "drupal/d8cache": "7.x-1.2"
+    }
+}
