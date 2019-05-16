@@ -10,6 +10,6 @@
         }
     ],
     "require": {
-      "drupal/d8cache": "7.x-1.2"
+      "drupal/d8cache": "~1.2"
     }
 }
