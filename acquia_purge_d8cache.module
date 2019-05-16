@@ -17,21 +17,22 @@ function acquia_purge_d8cache_init() {
  * Implements hook_flush_caches().
  */
 function acquia_purge_d8cache_flush_caches() {
-  $tags = db_select('d8cache_cache_tags', 'c')
-    ->distinct()
-    ->fields('c', ['tag'])
-    ->execute()
-    ->fetchCol();
-
-  // Invalidate all tags when full site cache is cleared.
-  acquia_purge_d8cache_invalidate_cache_tags($tags);
-}
-
-/**
- * Implements hook_invalidate_cache_tags().
- */
-function acquia_purge_d8cache_invalidate_cache_tags($tags) {
-  // TODO Call acquia LB to purge varnish.
+  $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
+  $site = _acquia_purge_d8cache_get_site_identifier();
+  foreach ($ipv4_addresses as $ipv4) {
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, "http://$ipv4/site");
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'BAN');
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1.5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+      'X-Acquia-Purge' => $site,
+      'Accept-Encoding' => 'gzip',
+      'User-Agent' => 'Acquia Purge',
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+  }
 }
 
 /**
@@ -44,21 +45,92 @@ function acquia_purge_d8cache_views_pre_build(&$view) {
   }
 }
 
+/**
+ * Implements hook_invalidate_cache_tags().
+ */
+function acquia_purge_d8cache_invalidate_cache_tags($tags) {
+
+  // Create grouped sets of 12 so that we can spread out the BAN load.
+  $group = 0;
+  $groups = [];
+  foreach ($tags as $tag) {
+    if (!isset($groups[$group])) {
+      $groups[$group] = ['tags' => [], ['objects' => []]];
+    }
+    if (count($groups[$group]['tags']) >= 15) {
+      $group++;
+    }
+    $groups[$group]['tags'][] = $tag;
+  }
+
+  // Test if we have at least one group of tag(s) to purge, if not, bail.
+  if (!count($groups)) {
+    return;
+  }
+
+  // Now create requests for all groups of tags.
+  $site = _acquia_purge_d8cache_get_site_identifier();
+  $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
+
+  $global_opt = [
+    'http_errors' => FALSE,
+    'connect_timeout' => 1.5,
+    'timeout' => 3,
+    'verify' => FALSE,
+    'acquia_purge_middleware' => TRUE,
+  ];
+
+  foreach ($groups as $group_id => $group) {
+    $tags = implode(' ', $group['tags']);
+    foreach ($ipv4_addresses as $ipv4) {
+
+      $opt = [
+        'headers' => [
+          'X-Acquia-Purge' => $site,
+          'X-Acquia-Purge-Tags' => $tags,
+          'Accept-Encoding' => 'gzip',
+          'User-Agent' => 'Acquia Purge',
+        ],
+      ];
+
+      $opt = array_merge($global_opt, $opt);
+
+      $ch = curl_init();
+      curl_setopt($ch, CURLOPT_URL, "http://$ipv4/tags");
+      curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'BAN');
+      curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1.5);
+      curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+      curl_setopt($ch, CURLOPT_HTTPHEADER, $opt['headers']);
+      curl_exec($ch);
+      curl_close($ch);
+    };
+
+  }
+}
+
+/**
+ * Get a hashed unique identifier for the current site.
+ *
+ * @return bool|string
+ *   Unique ID.
+ */
 function _acquia_purge_d8cache_get_site_identifier() {
   $site_name = _acquia_purge_d8cache_get_site_name();
   $site_path = conf_path();
   return substr(hash('md5', $site_name . $site_path), 0, 16);
 }
 
+/**
+ * Get the addresses to the load balancers.
+ *
+ * @return array
+ *   Array of IP's.
+ */
 function _acquia_purge_d8cache_get_balancers() {
   static $balancers;
-
   // Cache the results statically, preventing multiple lookups during runtime.
   if (is_null($balancers)) {
-    $balancers = [];
-    foreach (variable_get('reverse_proxies', []) as $ip_address) {
-      $balancers[] = $ip_address;
-    }
+    $balancers = array_values(variable_get('reverse_proxies', []));
   }
   return $balancers;
 }
@@ -95,61 +167,4 @@ function _acquia_purge_d8cache_get_site_group() {
     }
   }
   return $ah_site_group;
-}
-
-function acquia_purge_d8cache_hosting_info() {
-  return [
-    'balancer_addresses' => _acquia_purge_d8cache_get_balancers(),
-    'site_name' => _acquia_purge_d8cache_get_site_name(),
-    'site_group' => _acquia_purge_d8cache_get_site_group(),
-  ];
-}
-
-/**
- * Invalidate a set of tag invalidations.
- */
-function acquia_purge_d8cache_invalidate(array $tags) {
-
-  // Create grouped sets of 12 so that we can spread out the BAN load.
-  $group = 0;
-  $groups = [];
-  foreach ($tags as $tag) {
-    if (!isset($groups[$group])) {
-      $groups[$group] = ['tags' => [], ['objects' => []]];
-    }
-    if (count($groups[$group]['tags']) >= 15) {
-      $group++;
-    }
-    $groups[$group]['tags'][] = $tag;
-  }
-
-  // Test if we have at least one group of tag(s) to purge, if not, bail.
-  if (!count($groups)) {
-    return;
-  }
-
-  // Now create requests for all groups of tags.
-  $site = _acquia_purge_d8cache_get_site_identifier();
-  $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
-
-  foreach ($groups as $group_id => $group) {
-    $tags = implode(' ', $group['tags']);
-    foreach ($ipv4_addresses as $ipv4) {
-      yield $group_id => function ($poolopt) use ($site, $tags, $ipv4) {
-        $opt = [
-          'headers' => [
-            'X-Acquia-Purge' => $site,
-            'X-Acquia-Purge-Tags' => $tags,
-            'Accept-Encoding' => 'gzip',
-            'User-Agent' => 'Acquia Purge',
-          ],
-        ];
-        if (is_array($poolopt) && count($poolopt)) {
-          $opt = array_merge($poolopt, $opt);
-        }
-
-        //        return $this->client->requestAsync('BAN', "http://$ipv4/tags", $opt);
-      };
-    }
-  }
 }
