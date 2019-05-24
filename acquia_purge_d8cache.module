@@ -14,22 +14,23 @@ function acquia_purge_d8cache_init() {
 }
 
 /**
+ * Implements hook_emit_cache_tags().
+ */
+function acquia_purge_d8cache_emit_cache_tags($tags) {
+  array_walk($tags, '_acquia_purge_d8cache_hash_tag');
+  drupal_add_http_header('X-Acquia-Purge-Tags', implode(' ', $tags));
+}
+
+/**
  * Implements hook_flush_caches().
  */
 function acquia_purge_d8cache_flush_caches() {
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
-  $site = _acquia_purge_d8cache_get_site_identifier();
+
   foreach ($ipv4_addresses as $ipv4) {
+    $options = _acquia_purge_d8cache_get_curl_options("http://$ipv4/site");
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, "http://$ipv4/site");
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'BAN');
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1.5);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-      'X-Acquia-Purge' => $site,
-      'Accept-Encoding' => 'gzip',
-      'User-Agent' => 'Acquia Purge',
-    ]);
+    curl_setopt_array($ch, $options);
     curl_exec($ch);
     curl_close($ch);
   }
@@ -49,18 +50,16 @@ function acquia_purge_d8cache_views_pre_build(&$view) {
  * Implements hook_invalidate_cache_tags().
  */
 function acquia_purge_d8cache_invalidate_cache_tags($tags) {
-
-  // Create grouped sets of 12 so that we can spread out the BAN load.
+  // Create grouped sets of 15 so that we can spread out the BAN load.
   $group = 0;
   $groups = [];
+
+  array_walk($tags, '_acquia_purge_d8cache_hash_tag');
   foreach ($tags as $tag) {
-    if (!isset($groups[$group])) {
-      $groups[$group] = ['tags' => [], ['objects' => []]];
-    }
-    if (count($groups[$group]['tags']) >= 15) {
+    if (isset($groups[$group]) && count($groups[$group]) >= 15) {
       $group++;
     }
-    $groups[$group]['tags'][] = $tag;
+    $groups[$group][] = $tag;
   }
 
   // Test if we have at least one group of tag(s) to purge, if not, bail.
@@ -69,43 +68,50 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
   }
 
   // Now create requests for all groups of tags.
-  $site = _acquia_purge_d8cache_get_site_identifier();
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
 
-  $global_opt = [
-    'http_errors' => FALSE,
-    'connect_timeout' => 1.5,
-    'timeout' => 3,
-    'verify' => FALSE,
-    'acquia_purge_middleware' => TRUE,
-  ];
-
-  foreach ($groups as $group_id => $group) {
-    $tags = implode(' ', $group['tags']);
+  foreach ($groups as $group) {
+    $tags = implode(' ', $group);
     foreach ($ipv4_addresses as $ipv4) {
-
-      $opt = [
-        'headers' => [
-          'X-Acquia-Purge' => $site,
-          'X-Acquia-Purge-Tags' => $tags,
-          'Accept-Encoding' => 'gzip',
-          'User-Agent' => 'Acquia Purge',
-        ],
-      ];
-
-      $opt = array_merge($global_opt, $opt);
-
+      $options = _acquia_purge_d8cache_get_curl_options("http://$ipv4/tags", $tags);
       $ch = curl_init();
-      curl_setopt($ch, CURLOPT_URL, "http://$ipv4/tags");
-      curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'BAN');
-      curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1.5);
-      curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-      curl_setopt($ch, CURLOPT_HTTPHEADER, $opt['headers']);
+      curl_setopt_array($ch, $options);
       curl_exec($ch);
       curl_close($ch);
     };
-
   }
+}
+
+/**
+ * Get curl options for varnish ban requests.
+ *
+ * @param string $url
+ *   Curl request url.
+ * @param array $tags
+ *   Optionally pass tags header.
+ *
+ * @return array
+ *   Keyed array of curl options.
+ */
+function _acquia_purge_d8cache_get_curl_options($url, $tags = []) {
+  $site = _acquia_purge_d8cache_get_site_identifier();
+  $options = [
+    CURLOPT_URL => $url,
+    CURLOPT_CUSTOMREQUEST => 'BAN',
+    CURLOPT_CONNECTTIMEOUT => 1.5,
+    CURLOPT_TIMEOUT => 3,
+    CURLOPT_SSL_VERIFYPEER => 0,
+    CURLOPT_HTTPHEADER => [
+      "X-Acquia-Purge: $site",
+      "Accept-Encoding: gzip",
+      "User-Agent: Acquia Purge",
+    ],
+  ];
+
+  if ($tags) {
+    $options[CURLOPT_HTTPHEADER][] = "X-Acquia-Purge-Tags: $tags";
+  }
+  return $options;
 }
 
 /**
@@ -153,18 +159,11 @@ function _acquia_purge_d8cache_get_site_name() {
 }
 
 /**
- * Determine the Acquia site group.
+ * Hash the cache tag into a 4 character string.
  *
- * @return false|string
- *   Either a boolean FALSE or a string identifying what site group this is.
+ * @param string $tag
+ *   Cache tag.
  */
-function _acquia_purge_d8cache_get_site_group() {
-  static $ah_site_group;
-  if (is_null($ah_site_group)) {
-    $ah_site_group = FALSE;
-    if (isset($_ENV['AH_SITE_GROUP']) && !empty($_ENV['AH_SITE_GROUP'])) {
-      $ah_site_group = $_ENV['AH_SITE_GROUP'];
-    }
-  }
-  return $ah_site_group;
+function _acquia_purge_d8cache_hash(&$tag) {
+  $tag =  substr(hash('md5', $tag), 0, 4);
 }
