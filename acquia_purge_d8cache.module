@@ -54,8 +54,6 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
   $group = 0;
   $groups = [];
 
-  dpm($tags);
-
   array_walk($tags, '_acquia_purge_d8cache_hash_tag');
   foreach ($tags as $tag) {
     if (isset($groups[$group]) && count($groups[$group]) >= 15) {
