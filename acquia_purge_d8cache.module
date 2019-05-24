@@ -54,6 +54,8 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
   $group = 0;
   $groups = [];
 
+  dpm($tags);
+
   array_walk($tags, '_acquia_purge_d8cache_hash_tag');
   foreach ($tags as $tag) {
     if (isset($groups[$group]) && count($groups[$group]) >= 15) {
@@ -79,6 +81,51 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
       curl_exec($ch);
       curl_close($ch);
     };
+  }
+}
+
+/**
+ * Implements hook_views_pre_render().
+ */
+function acquia_purge_d8cache_views_pre_render(&$view) {
+  $tags = [];
+  if (!empty($view->filter['type'])) {
+    $entity_type = $view->base_table;
+    foreach ($view->filter['type']->value as $bundle) {
+      $tags[] = "{$entity_type}_{$bundle}_list";
+    }
+  }
+  drupal_add_cache_tags($tags);
+}
+
+/**
+ * Implements hook_cron().
+ */
+function acquia_purge_d8cache_cron() {
+  $last_cron = variable_get('cron_last', FALSE);
+
+  if (!$last_cron) {
+    return;
+  }
+  $last_cron = date('Y-m-d H:i:s', $last_cron);
+  $current = date('Y-m-d H:i:s', time());
+
+  // Find all entities that have date values that may have passed since the last
+  // cron execution. If the date has passed, invalidate that entity tags. This
+  // should help with any views that might have a date filter that is relative
+  // to when the user views the site. Such as "Upcoming" vs "Past" content.
+  foreach (field_info_field_map() as $field_name => $field_info) {
+    if ($field_info['type'] == 'datetime') {
+      $query = db_select("field_data_$field_name", 'f')
+        ->fields('f')
+        ->where("{$field_name}_value between '$last_cron' and '$current'")
+        ->execute();
+
+      while ($field_data = $query->fetchAssoc()) {
+        $entity = entity_load($field_data['entity_type'], [$field_data['entity_id']]);
+        _d8cache_entity_invalidate_cache_tags($field_data['entity_type'], reset($entity));
+      }
+    }
   }
 }
 
@@ -164,6 +211,6 @@ function _acquia_purge_d8cache_get_site_name() {
  * @param string $tag
  *   Cache tag.
  */
-function _acquia_purge_d8cache_hash(&$tag) {
-  $tag =  substr(hash('md5', $tag), 0, 4);
+function _acquia_purge_d8cache_hash_tag(&$tag) {
+  $tag = substr(hash('md5', $tag), 0, 4);
 }
