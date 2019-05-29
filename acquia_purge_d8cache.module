@@ -7,6 +7,10 @@
 
 /**
  * Implements hook_init().
+ *
+ * Add a unique identifier header to differentiate each site within Acquia's
+ * Varnish layer. Each site could have multiple domains, all with the same
+ * header.
  */
 function acquia_purge_d8cache_init() {
   $identifier = _acquia_purge_d8cache_get_site_identifier();
@@ -18,6 +22,7 @@ function acquia_purge_d8cache_init() {
  */
 function acquia_purge_d8cache_emit_cache_tags($tags) {
   array_walk($tags, '_acquia_purge_d8cache_hash_tag');
+  // Expose the header for Acquia's varnish to consume.
   drupal_add_http_header('X-Acquia-Purge-Tags', implode(' ', $tags));
 }
 
@@ -26,14 +31,20 @@ function acquia_purge_d8cache_emit_cache_tags($tags) {
  */
 function acquia_purge_d8cache_flush_caches() {
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
-
+  // Perform a full site varnish flush.
   foreach ($ipv4_addresses as $ipv4) {
-    $options = _acquia_purge_d8cache_get_curl_options("http://$ipv4/site");
-    $ch = curl_init();
-    curl_setopt_array($ch, $options);
-    curl_exec($ch);
-    curl_close($ch);
+    _acquia_purge_d8cache_curl_request("http://$ipv4/site");
   }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function acquia_purge_d8cache_form_views_ui_edit_display_form_alter(&$form, &$form_state, $form_id) {
+  // Prevent users from changing view cache settings since we disable them all.
+  $form = [
+    '#markup' => t('<h2>Acquia Purge D8Cache module has disabled these settings.</h2>'),
+  ];
 }
 
 /**
@@ -47,10 +58,25 @@ function acquia_purge_d8cache_views_pre_build(&$view) {
 }
 
 /**
+ * Implements hook_views_pre_render().
+ */
+function acquia_purge_d8cache_views_pre_render(&$view) {
+  $tags = [];
+  if (!empty($view->filter['type'])) {
+    $entity_type = $view->base_table;
+    foreach ($view->filter['type']->value as $bundle) {
+      $tags[] = "{$entity_type}_{$bundle}_list";
+    }
+  }
+  drupal_add_cache_tags($tags);
+}
+
+/**
  * Implements hook_invalidate_cache_tags().
  */
 function acquia_purge_d8cache_invalidate_cache_tags($tags) {
   // Create grouped sets of 15 so that we can spread out the BAN load.
+  // 15 is arbitrary but is identical to the D8 Acquia Purge module.
   $group = 0;
   $groups = [];
 
@@ -73,27 +99,9 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
   foreach ($groups as $group) {
     $tags = implode(' ', $group);
     foreach ($ipv4_addresses as $ipv4) {
-      $options = _acquia_purge_d8cache_get_curl_options("http://$ipv4/tags", $tags);
-      $ch = curl_init();
-      curl_setopt_array($ch, $options);
-      curl_exec($ch);
-      curl_close($ch);
+      _acquia_purge_d8cache_curl_request("http://$ipv4/tags", $tags);
     };
   }
-}
-
-/**
- * Implements hook_views_pre_render().
- */
-function acquia_purge_d8cache_views_pre_render(&$view) {
-  $tags = [];
-  if (!empty($view->filter['type'])) {
-    $entity_type = $view->base_table;
-    foreach ($view->filter['type']->value as $bundle) {
-      $tags[] = "{$entity_type}_{$bundle}_list";
-    }
-  }
-  drupal_add_cache_tags($tags);
 }
 
 /**
@@ -107,6 +115,7 @@ function acquia_purge_d8cache_cron() {
   }
   $last_cron = date('Y-m-d H:i:s', $last_cron);
   $current = date('Y-m-d H:i:s', time());
+  $tags = [];
 
   // Find all entities that have date values that may have passed since the last
   // cron execution. If the date has passed, invalidate that entity tags. This
@@ -120,11 +129,33 @@ function acquia_purge_d8cache_cron() {
         ->execute();
 
       while ($field_data = $query->fetchAssoc()) {
-        $entity = entity_load($field_data['entity_type'], [$field_data['entity_id']]);
-        _d8cache_entity_invalidate_cache_tags($field_data['entity_type'], reset($entity));
+        // Simpler method than the d8cache module has so we don't need to load
+        // every entity.
+        // @see _d8cache_entity_invalidate_cache_tags()
+        $tags[] = "{$field_data['entity_type']}_list";
+        $tags[] = "{$field_data['entity_type']}_{$field_data['bundle']}_list";
+        $tags[] = "{$field_data['entity_type']}:{$field_data['entity_id']}";
       }
     }
   }
+
+  drupal_invalidate_cache_tags(array_unique($tags));
+}
+
+/**
+ * Send curl request to the load balancers.
+ *
+ * @param string $url
+ *   Load balancer url.
+ * @param array $tags
+ *   Array of varnish tags to invalidate.
+ */
+function _acquia_purge_d8cache_curl_request($url, $tags = []) {
+  $options = _acquia_purge_d8cache_get_curl_options($url, $tags);
+  $ch = curl_init();
+  curl_setopt_array($ch, $options);
+  curl_exec($ch);
+  curl_close($ch);
 }
 
 /**
