@@ -113,8 +113,13 @@ function acquia_purge_d8cache_cron() {
   if (!$last_cron) {
     return;
   }
-  $last_cron = date('Y-m-d H:i:s', $last_cron);
-  $current = date('Y-m-d H:i:s', time());
+
+  $last_cron = new DateObject($last_cron);
+  $last_cron->format('Y-m-d H:i:s');
+
+  $current = new DateObject();
+  $current = $current->format('Y-m-d H:i:s');
+
   $tags = [];
 
   // Find all entities that have date values that may have passed since the last
