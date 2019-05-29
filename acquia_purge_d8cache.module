@@ -115,10 +115,9 @@ function acquia_purge_d8cache_cron() {
   }
 
   $last_cron = new DateObject($last_cron);
-  $last_cron->format('Y-m-d H:i:s');
-
-  $current = new DateObject();
-  $current = $current->format('Y-m-d H:i:s');
+  $utc = new DateTimeZone('UTC');
+  $last_cron->setTimezone($utc);
+  $last_cron_utc = $last_cron->format('Y-m-d H:i:s');
 
   $tags = [];
 
@@ -130,7 +129,7 @@ function acquia_purge_d8cache_cron() {
     if ($field_info['type'] == 'datetime') {
       $query = db_select("field_data_$field_name", 'f')
         ->fields('f')
-        ->where("{$field_name}_value between '$last_cron' and '$current'")
+        ->where("{$field_name}_value between '$last_cron_utc' and NOW()")
         ->execute();
 
       while ($field_data = $query->fetchAssoc()) {
