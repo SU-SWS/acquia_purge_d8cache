@@ -10,7 +10,7 @@
  *
  * Add a unique identifier header to differentiate each site within Acquia's
  * Varnish layer. Each site could have multiple domains, all with the same
- * header.
+ * header. This header is not visible when on the Acquia site.
  */
 function acquia_purge_d8cache_init() {
   $identifier = _acquia_purge_d8cache_get_site_identifier();
@@ -22,7 +22,10 @@ function acquia_purge_d8cache_init() {
  */
 function acquia_purge_d8cache_emit_cache_tags($tags) {
   array_walk($tags, '_acquia_purge_d8cache_hash_tag');
-  // Expose the header for Acquia's varnish to consume.
+  // Expose the header for Acquia's varnish to consume. This is not visible when
+  // on the Acquia site. the tags will be similar to `43fb faea c508`. These
+  // tag strings are abitrary, but we hash and shorten them to make the header
+  // shorter and faster.
   drupal_add_http_header('X-Acquia-Purge-Tags', implode(' ', $tags));
 }
 
@@ -31,7 +34,7 @@ function acquia_purge_d8cache_emit_cache_tags($tags) {
  */
 function acquia_purge_d8cache_flush_caches() {
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
-  // Perform a full site varnish flush.
+  // Perform a full site varnish flush when Drupal site caches are cleared..
   foreach ($ipv4_addresses as $ipv4) {
     _acquia_purge_d8cache_curl_request("http://$ipv4/site");
   }
@@ -65,10 +68,25 @@ function acquia_purge_d8cache_views_pre_render(&$view) {
   if (!empty($view->filter['type'])) {
     $entity_type = $view->base_table;
     foreach ($view->filter['type']->value as $bundle) {
-      $tags[] = "{$entity_type}_{$bundle}_list";
+      // Custom cache tags for when a new entity is created of the bundle that
+      // this view is displaying.
+      $tags[] = "{$entity_type}_{$bundle}_create";
     }
   }
   drupal_add_cache_tags($tags);
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function acquia_purge_d8cache_entity_insert($entity, $type) {
+  list(, , $bundle) = entity_extract_ids($type, $entity);
+  if ($bundle) {
+    // Invalidate the custom cache tag for views.
+    // @see acquia_purge_d8cache_views_pre_render()
+    $tags = ["{$type}_{$bundle}_create"];
+    drupal_invalidate_cache_tags($tags);
+  }
 }
 
 /**
@@ -110,7 +128,7 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
 function acquia_purge_d8cache_cron() {
   $last_cron = variable_get('cron_last', FALSE);
 
-  if (!$last_cron) {
+  if (!$last_cron || !module_exists('date_api')) {
     return;
   }
 
@@ -125,6 +143,7 @@ function acquia_purge_d8cache_cron() {
   // cron execution. If the date has passed, invalidate that entity tags. This
   // should help with any views that might have a date filter that is relative
   // to when the user views the site. Such as "Upcoming" vs "Past" content.
+  // This assumes the database values are UTC since Acquia servers are on UTC.
   foreach (field_info_field_map() as $field_name => $field_info) {
     if ($field_info['type'] == 'datetime') {
       $query = db_select("field_data_$field_name", 'f')
