@@ -173,7 +173,7 @@ function acquia_purge_d8cache_cron() {
  * @param array $tags
  *   Array of varnish tags to invalidate.
  */
-function _acquia_purge_d8cache_curl_request($url, $tags = []) {
+function _acquia_purge_d8cache_curl_request($url, array $tags = []) {
   $options = _acquia_purge_d8cache_get_curl_options($url, $tags);
   $ch = curl_init();
   curl_setopt_array($ch, $options);
@@ -192,7 +192,7 @@ function _acquia_purge_d8cache_curl_request($url, $tags = []) {
  * @return array
  *   Keyed array of curl options.
  */
-function _acquia_purge_d8cache_get_curl_options($url, $tags = []) {
+function _acquia_purge_d8cache_get_curl_options($url, array $tags = []) {
   $site = _acquia_purge_d8cache_get_site_identifier();
   $options = [
     CURLOPT_URL => $url,
