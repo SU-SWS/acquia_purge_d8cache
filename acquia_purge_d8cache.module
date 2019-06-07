@@ -207,7 +207,7 @@ function _acquia_purge_d8cache_get_curl_options($url, array $tags = []) {
   ];
 
   if ($tags) {
-    $options[CURLOPT_HTTPHEADER][] = "X-Acquia-Purge-Tags: $tags";
+    $options[CURLOPT_HTTPHEADER][] = 'X-Acquia-Purge-Tags: ' . implode(' ', $tags);
   }
   return $options;
 }
