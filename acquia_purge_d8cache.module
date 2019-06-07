@@ -199,6 +199,7 @@ function _acquia_purge_d8cache_get_curl_options($url, array $tags = []) {
     CURLOPT_CONNECTTIMEOUT => 1.5,
     CURLOPT_TIMEOUT => 3,
     CURLOPT_SSL_VERIFYPEER => 0,
+    CURLOPT_RETURNTRANSFER => 1,
     CURLOPT_HTTPHEADER => [
       "X-Acquia-Purge: $site",
       "Accept-Encoding: gzip",
