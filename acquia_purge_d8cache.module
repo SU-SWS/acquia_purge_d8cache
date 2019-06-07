@@ -114,10 +114,9 @@ function acquia_purge_d8cache_invalidate_cache_tags($tags) {
   // Now create requests for all groups of tags.
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
 
-  foreach ($groups as $group) {
-    $tags = implode(' ', $group);
+  foreach ($groups as $group_tags) {
     foreach ($ipv4_addresses as $ipv4) {
-      _acquia_purge_d8cache_curl_request("http://$ipv4/tags", $tags);
+      _acquia_purge_d8cache_curl_request("http://$ipv4/tags", $group_tags);
     };
   }
 }
