@@ -44,10 +44,12 @@ function acquia_purge_d8cache_flush_caches() {
  * Implements hook_form_FORM_ID_alter().
  */
 function acquia_purge_d8cache_form_views_ui_edit_display_form_alter(&$form, &$form_state, $form_id) {
-  // Prevent users from changing view cache settings since we disable them all.
-  $form = [
-    '#markup' => t('<h2>Acquia Purge D8Cache module has disabled these settings.</h2>'),
-  ];
+  if (isset($form_state['section']) && $form_state['section'] == 'cache') {
+    // Prevent users from changing view cache settings since we disable them all.
+    $form = [
+      '#markup' => t('<h2>Acquia Purge D8Cache module has disabled these settings.</h2>'),
+    ];
+  }
 }
 
 /**
