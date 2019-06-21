@@ -24,7 +24,7 @@ function acquia_purge_d8cache_drush_command() {
  */
 function drush_acquia_purge_d8cache_clear_site() {
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
-  // Perform a full site varnish flush when Drupal site caches are cleared.
+  // Perform a full site varnish flush.
   foreach ($ipv4_addresses as $ipv4) {
     _acquia_purge_d8cache_curl_request("http://$ipv4/site", [], TRUE);
   }
