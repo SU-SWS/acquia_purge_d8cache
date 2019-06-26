@@ -22,7 +22,7 @@ function acquia_purge_d8cache_drush_command() {
 /**
  * Drush callback to clear full site varnish caches.
  */
-function drush_acquia_purge_d8cache_clear_site() {
+function drush_acquia_purge_d8cache_apd8cache_flush() {
   $ipv4_addresses = _acquia_purge_d8cache_get_balancers();
   // Perform a full site varnish flush.
   foreach ($ipv4_addresses as $ipv4) {
