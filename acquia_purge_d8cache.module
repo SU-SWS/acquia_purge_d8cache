@@ -45,7 +45,7 @@ function acquia_purge_d8cache_flush_caches() {
  */
 function acquia_purge_d8cache_form_views_ui_edit_display_form_alter(&$form, &$form_state, $form_id) {
   if (isset($form_state['section']) && $form_state['section'] == 'cache') {
-    // Prevent users from changing view cache settings since we disable them all.
+    // Prevent users from changing view cache settings since we disable them.
     $form = [
       '#markup' => t('<h2>Acquia Purge D8Cache module has disabled these settings.</h2>'),
     ];
@@ -173,13 +173,20 @@ function acquia_purge_d8cache_cron() {
  *   Load balancer url.
  * @param array $tags
  *   Array of varnish tags to invalidate.
+ * @param bool $allow_cli
+ *   Flag to allow CLI commands make curl requests (drush command).
  */
-function _acquia_purge_d8cache_curl_request($url, array $tags = []) {
-  $options = _acquia_purge_d8cache_get_curl_options($url, $tags);
-  $ch = curl_init();
-  curl_setopt_array($ch, $options);
-  curl_exec($ch);
-  curl_close($ch);
+function _acquia_purge_d8cache_curl_request($url, array $tags = [], $allow_cli = FALSE) {
+  // Only flush varnish if caches are cleared via the UI or through the included
+  // drush command. This reduces the unnecessary invalidations when doing
+  // database updates through hooks.
+  if (PHP_SAPI !== 'cli' || $allow_cli) {
+    $options = _acquia_purge_d8cache_get_curl_options($url, $tags);
+    $ch = curl_init();
+    curl_setopt_array($ch, $options);
+    curl_exec($ch);
+    curl_close($ch);
+  }
 }
 
 /**
