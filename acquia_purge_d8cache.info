@@ -2,5 +2,5 @@ name = Acquia Purge D8 Cache
 description = Purge Acquia varnish caches using D8Cache module, which is a backport of D8 cache tag mechanism
 core = 7.x
 package = Stanford - ACSF
-version = 7.x-1.1
+version = 7.x-1.2
 dependencies[] = d8cache
