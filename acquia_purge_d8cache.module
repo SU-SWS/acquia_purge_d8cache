@@ -273,6 +273,5 @@ function _acquia_purge_d8cache_get_site_name() {
  *   Cache tag.
  */
 function _acquia_purge_d8cache_hash_tag(&$tag) {
-  return;
   $tag = substr(hash('md5', $tag), 0, 4);
 }
