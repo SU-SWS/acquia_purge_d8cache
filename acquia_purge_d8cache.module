@@ -72,7 +72,7 @@ function acquia_purge_d8cache_views_pre_render(&$view) {
     foreach ($view->filter['type']->value as $bundle) {
       // Custom cache tags for when a new entity is created of the bundle that
       // this view is displaying.
-      $tags[] = "{$entity_type}_{$bundle}_create";
+      $tags[] = "{$entity_type}_{$bundle}_list";
     }
   }
   drupal_add_cache_tags($tags);
@@ -86,7 +86,7 @@ function acquia_purge_d8cache_entity_insert($entity, $type) {
   if ($bundle) {
     // Invalidate the custom cache tag for views.
     // @see acquia_purge_d8cache_views_pre_render()
-    $tags = ["{$type}_{$bundle}_create"];
+    $tags = ["{$type}_{$bundle}_list"];
     drupal_invalidate_cache_tags($tags);
   }
 }
