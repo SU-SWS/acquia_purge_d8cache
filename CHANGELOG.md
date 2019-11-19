@@ -5,6 +5,7 @@
 _Release Date: 2019-11-19_
 
 - Modified cache tags on views to be more apt to invalidation when content is edited.
+- Use UTC_TIMESTAMP() instead of NOW(). 
 
 7.x-1.2
 --------------------------------------------------------------------------------
