@@ -1,5 +1,11 @@
 # Acquia Purge D8Cache
 
+7.x-1.3
+--------------------------------------------------------------------------------
+_Release Date: 2019-11-19_
+
+- Modified cache tags on views to be more apt to invalidation when content is edited.
+
 7.x-1.2
 --------------------------------------------------------------------------------
 _Release Date: 2019-06-26_
