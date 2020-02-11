@@ -1,5 +1,5 @@
 # [Acquia Purge D8Cache](https://github.com/SU-SWS/acquia_purge_d8cache)
-##### Version: 7.x-1.4
+##### Version: 7.x-1.x
 
 Maintainers: [pookmish](https://github.com/pookmish), [jbickar](https://github.com/jbickar),  [sherakama](https://github.com/sherakama)
 
