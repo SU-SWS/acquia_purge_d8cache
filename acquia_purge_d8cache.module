@@ -162,7 +162,7 @@ function acquia_purge_d8cache_cron() {
       }
     }
   }
-
+  drupal_static(__FUNCTION__, TRUE);
   drupal_invalidate_cache_tags(array_unique($tags));
 }
 
@@ -177,10 +177,13 @@ function acquia_purge_d8cache_cron() {
  *   Flag to allow CLI commands make curl requests (drush command).
  */
 function _acquia_purge_d8cache_curl_request($url, array $tags = [], $allow_cli = FALSE) {
+  // If the cron hook has fired, make sure to allow the curl request to work.
+  $during_cron = drupal_static('acquia_purge_d8cache_cron', FALSE);
+
   // Only flush varnish if caches are cleared via the UI or through the included
   // drush command. This reduces the unnecessary invalidations when doing
   // database updates through hooks.
-  if (PHP_SAPI !== 'cli' || $allow_cli) {
+  if (PHP_SAPI !== 'cli' || $allow_cli || $during_cron) {
     $options = _acquia_purge_d8cache_get_curl_options($url, $tags);
     $ch = curl_init();
     curl_setopt_array($ch, $options);

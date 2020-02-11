@@ -1,11 +1,17 @@
 # Acquia Purge D8Cache
 
+7.x-1.4
+--------------------------------------------------------------------------------
+_Release Date: 2020-02-10_
+
+- Fixed the logic to allow varnish tags to be cleared during cron runs when executed via the CLI.
+
 7.x-1.3
 --------------------------------------------------------------------------------
 _Release Date: 2019-11-19_
 
 - Modified cache tags on views to be more apt to invalidation when content is edited.
-- Use UTC_TIMESTAMP() instead of NOW(). 
+- Use UTC_TIMESTAMP() instead of NOW().
 
 7.x-1.2
 --------------------------------------------------------------------------------
